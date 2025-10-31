@@ -1,6 +1,5 @@
-use crate::{Autoproxy, Error, Result, Sysproxy};
-use std::ffi::c_void;
-use std::{mem::ManuallyDrop, mem::size_of, net::SocketAddr, str::FromStr};
+use crate::{Autoproxy, Result, Sysproxy};
+use std::{ffi::c_void, mem::ManuallyDrop, mem::size_of};
 use url::Url;
 use windows::Win32::Networking::WinInet::{
     INTERNET_OPTION_PER_CONNECTION_OPTION, INTERNET_OPTION_PROXY_SETTINGS_CHANGED,
@@ -31,7 +30,7 @@ fn unset_proxy() -> Result<()> {
         dwSize: size_of::<INTERNET_PER_CONN_OPTION_LISTW>() as u32,
         dwOptionCount: 1,
         dwOptionError: 0,
-        pOptions: p_opts.as_mut_ptr() as *mut INTERNET_PER_CONN_OPTIONW,
+        pOptions: p_opts.as_mut_ptr(),
         pszConnection: PWSTR::null(),
     };
     let res = apply(&opts);
@@ -62,7 +61,7 @@ fn set_auto_proxy(server: String) -> Result<()> {
         dwSize: size_of::<INTERNET_PER_CONN_OPTION_LISTW>() as u32,
         dwOptionCount: 2,
         dwOptionError: 0,
-        pOptions: p_opts.as_mut_ptr() as *mut INTERNET_PER_CONN_OPTIONW,
+        pOptions: p_opts.as_mut_ptr(),
         pszConnection: PWSTR::null(),
     };
 
@@ -110,7 +109,7 @@ fn set_global_proxy(server: String, bypass: String) -> Result<()> {
         dwSize: size_of::<INTERNET_PER_CONN_OPTION_LISTW>() as u32,
         dwOptionCount: 3,
         dwOptionError: 0,
-        pOptions: p_opts.as_mut_ptr() as *mut INTERNET_PER_CONN_OPTIONW,
+        pOptions: p_opts.as_mut_ptr(),
         pszConnection: PWSTR::null(),
     };
 
@@ -199,7 +198,7 @@ impl Autoproxy {
         let cur_var = hkcu.open_subkey_with_flags(SUB_KEY, enums::KEY_READ)?;
         let url = cur_var.get_value::<String, _>("AutoConfigURL");
         let enable = url.is_ok();
-        let url = url.unwrap_or("".into());
+        let url = url.unwrap_or_else(|_| "".into());
 
         Ok(Autoproxy { enable, url })
     }
@@ -222,12 +221,12 @@ fn parse_proxy_address(address: &str, host: &mut String, port: &mut u16) {
     }
 
     // 尝试作为host:port解析
-    if let Some((h, p)) = address.rsplit_once(':') {
-        if let Ok(port_num) = p.parse::<u16>() {
-            *host = h.to_string();
-            *port = port_num;
-            return;
-        }
+    if let Some((h, p)) = address.rsplit_once(':')
+        && let Ok(port_num) = p.parse::<u16>()
+    {
+        *host = h.to_string();
+        *port = port_num;
+        return;
     }
 
     // 如果无法解析端口，默认使用主机名和标准HTTP端口

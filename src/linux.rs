@@ -25,7 +25,7 @@ impl Sysproxy {
         }
 
         socks.enable = enable;
-        socks.bypass = Sysproxy::get_bypass().unwrap_or("".into());
+        socks.bypass = Sysproxy::get_bypass().unwrap_or_else(|_| "".into());
 
         Ok(socks)
     }
@@ -59,14 +59,14 @@ impl Sysproxy {
                     ])
                     .output()?;
                 let mode = from_utf8(&mode.stdout)
-                    .or(Err(Error::ParseStr("mode".into())))?
+                    .map_err(|_| Error::ParseStr("mode".into()))?
                     .trim();
                 Ok(mode == "1")
             }
             _ => {
                 let mode = gsettings().args(["get", CMD_KEY, "mode"]).output()?;
                 let mode = from_utf8(&mode.stdout)
-                    .or(Err(Error::ParseStr("mode".into())))?
+                    .map_err(|_| Error::ParseStr("mode".into()))?
                     .trim();
                 Ok(mode == "'manual'")
             }
@@ -89,7 +89,7 @@ impl Sysproxy {
                     ])
                     .output()?;
                 let bypass = from_utf8(&bypass.stdout)
-                    .or(Err(Error::ParseStr("bypass".into())))?
+                    .map_err(|_| Error::ParseStr("bypass".into()))?
                     .trim();
 
                 let bypass = bypass
@@ -105,7 +105,7 @@ impl Sysproxy {
                     .args(["get", CMD_KEY, "ignore-hosts"])
                     .output()?;
                 let bypass = from_utf8(&bypass.stdout)
-                    .or(Err(Error::ParseStr("bypass".into())))?
+                    .map_err(|_| Error::ParseStr("bypass".into()))?
                     .trim();
 
                 let bypass = bypass.strip_prefix('[').unwrap_or(bypass);
@@ -270,11 +270,11 @@ fn kioslaverc_path() -> Result<String> {
     let xdg_dir = xdg::BaseDirectories::new();
     let config = xdg_dir
         .get_config_file("kioslaverc")
-        .ok_or(Error::ParseStr("config".into()))?;
+        .ok_or_else(|| Error::ParseStr("config".into()))?;
     config
         .to_str()
         .map(|value| value.to_owned())
-        .ok_or(Error::ParseStr("config".into()))
+        .ok_or_else(|| Error::ParseStr("config".into()))
 }
 
 fn quoted(value: &str) -> String {
@@ -399,14 +399,14 @@ fn get_proxy(service: &str) -> Result<Sysproxy> {
                 ])
                 .output()?;
             let schema = from_utf8(&schema.stdout)
-                .or(Err(Error::ParseStr("schema".into())))?
+                .map_err(|_| Error::ParseStr("schema".into()))?
                 .trim();
             let schema = schema
                 .trim_start_matches("http://")
                 .trim_start_matches("socks://");
             let schema = schema
                 .split_once(' ')
-                .ok_or(Error::ParseStr("schema".into()))?;
+                .ok_or_else(|| Error::ParseStr("schema".into()))?;
 
             let host = strip_str(schema.0);
             let port = schema.1.parse().unwrap_or(80u16);
@@ -424,13 +424,13 @@ fn get_proxy(service: &str) -> Result<Sysproxy> {
 
             let host = gsettings().args(["get", schema, "host"]).output()?;
             let host = from_utf8(&host.stdout)
-                .or(Err(Error::ParseStr("host".into())))?
+                .map_err(|_| Error::ParseStr("host".into()))?
                 .trim();
             let host = strip_str(host);
 
             let port = gsettings().args(["get", schema, "port"]).output()?;
             let port = from_utf8(&port.stdout)
-                .or(Err(Error::ParseStr("port".into())))?
+                .map_err(|_| Error::ParseStr("port".into()))?
                 .trim();
             let port = port.parse().unwrap_or(80u16);
 
@@ -468,7 +468,7 @@ impl Autoproxy {
                     ])
                     .output()?;
                 let mode = from_utf8(&mode.stdout)
-                    .or(Err(Error::ParseStr("mode".into())))?
+                    .map_err(|_| Error::ParseStr("mode".into()))?
                     .trim();
                 let url = kreadconfig()
                     .args([
@@ -481,20 +481,20 @@ impl Autoproxy {
                     ])
                     .output()?;
                 let url = from_utf8(&url.stdout)
-                    .or(Err(Error::ParseStr("url".into())))?
+                    .map_err(|_| Error::ParseStr("url".into()))?
                     .trim();
                 (mode == "2", url.to_string())
             }
             _ => {
                 let mode = gsettings().args(["get", CMD_KEY, "mode"]).output()?;
                 let mode = from_utf8(&mode.stdout)
-                    .or(Err(Error::ParseStr("mode".into())))?
+                    .map_err(|_| Error::ParseStr("mode".into()))?
                     .trim();
                 let url = gsettings()
                     .args(["get", CMD_KEY, "autoconfig-url"])
                     .output()?;
                 let url: &str = from_utf8(&url.stdout)
-                    .or(Err(Error::ParseStr("url".into())))?
+                    .map_err(|_| Error::ParseStr("url".into()))?
                     .trim();
                 let url = strip_str(url);
                 (mode == "'auto'", url.to_string())
