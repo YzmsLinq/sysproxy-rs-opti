@@ -158,11 +158,13 @@ impl Sysproxy {
                     .status()?;
                 let gmode = if self.enable { "'manual'" } else { "'none'" };
                 gsettings().args(["set", CMD_KEY, "mode", gmode]).status()?;
+                write_dconf("/system/proxy/mode", gmode);
                 Ok(())
             }
             _ => {
                 let mode = if self.enable { "'manual'" } else { "'none'" };
                 gsettings().args(["set", CMD_KEY, "mode", mode]).status()?;
+                write_dconf("/system/proxy/mode", mode);
                 Ok(())
             }
         }
@@ -196,6 +198,7 @@ impl Sysproxy {
                 gsettings()
                     .args(["set", CMD_KEY, "ignore-hosts", bypass.as_str()])
                     .status()?;
+                write_dconf("/system/proxy/ignore-hosts", bypass.as_str());
 
                 kwriteconfig()
                     .args([
@@ -232,6 +235,7 @@ impl Sysproxy {
                 gsettings()
                     .args(["set", CMD_KEY, "ignore-hosts", bypass.as_str()])
                     .status()?;
+                write_dconf("/system/proxy/ignore-hosts", bypass.as_str());
                 Ok(())
             }
         }
@@ -256,6 +260,26 @@ fn gsettings() -> Command {
         command.env_remove("LD_LIBRARY_PATH");
     }
     command
+}
+
+fn dconf() -> Command {
+    let mut command = Command::new("dconf");
+    if *IS_APPIMAGE {
+        command.env_remove("LD_LIBRARY_PATH");
+    }
+    command
+}
+
+fn write_dconf(path: &str, value: &str) {
+    let _ = dconf().arg("write").arg(path).arg(value).status();
+}
+
+fn quoted(value: &str) -> String {
+    if value.starts_with('\'') && value.ends_with('\'') {
+        value.to_string()
+    } else {
+        format!("'{}'", value)
+    }
 }
 
 fn kreadconfig() -> Command {
@@ -292,9 +316,14 @@ fn set_proxy(proxy: &Sysproxy, service: &str) -> Result<()> {
             let host = host.as_str();
             let port = format!("{}", proxy.port);
             let port = port.as_str();
+            let dconf_service = service;
 
             gsettings().args(["set", schema, "host", host]).status()?;
             gsettings().args(["set", schema, "port", port]).status()?;
+            let host_path = format!("/system/proxy/{dconf_service}/host");
+            let port_path = format!("/system/proxy/{dconf_service}/port");
+            write_dconf(host_path.as_str(), host);
+            write_dconf(port_path.as_str(), port);
 
             let xdg_dir = xdg::BaseDirectories::new()?;
             let config = xdg_dir.get_config_file("kioslaverc");
@@ -336,9 +365,14 @@ fn set_proxy(proxy: &Sysproxy, service: &str) -> Result<()> {
             let host = host.as_str();
             let port = format!("{}", proxy.port);
             let port = port.as_str();
+            let dconf_service = service;
 
             gsettings().args(["set", schema, "host", host]).status()?;
             gsettings().args(["set", schema, "port", port]).status()?;
+            let host_path = format!("/system/proxy/{dconf_service}/host");
+            let port_path = format!("/system/proxy/{dconf_service}/port");
+            write_dconf(host_path.as_str(), host);
+            write_dconf(port_path.as_str(), port);
 
             Ok(())
         }
@@ -497,16 +531,22 @@ impl Autoproxy {
                     .status()?;
                 let gmode = if self.enable { "'auto'" } else { "'none'" };
                 gsettings().args(["set", CMD_KEY, "mode", gmode]).status()?;
+                write_dconf("/system/proxy/mode", gmode);
+                let autoconfig = quoted(&self.url);
                 gsettings()
-                    .args(["set", CMD_KEY, "autoconfig-url", &self.url])
+                    .args(["set", CMD_KEY, "autoconfig-url", autoconfig.as_str()])
                     .status()?;
+                write_dconf("/system/proxy/autoconfig-url", autoconfig.as_str());
             }
             _ => {
                 let mode = if self.enable { "'auto'" } else { "'none'" };
                 gsettings().args(["set", CMD_KEY, "mode", mode]).status()?;
+                write_dconf("/system/proxy/mode", mode);
+                let autoconfig = quoted(&self.url);
                 gsettings()
-                    .args(["set", CMD_KEY, "autoconfig-url", &self.url])
+                    .args(["set", CMD_KEY, "autoconfig-url", autoconfig.as_str()])
                     .status()?;
+                write_dconf("/system/proxy/autoconfig-url", autoconfig.as_str());
             }
         }
 
