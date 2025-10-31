@@ -46,14 +46,12 @@ impl Sysproxy {
     pub fn get_enable() -> Result<bool> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
-                let xdg_dir = xdg::BaseDirectories::new()?;
-                let config = xdg_dir.get_config_file("kioslaverc");
-                let config = config.to_str().ok_or(Error::ParseStr("config".into()))?;
+                let config_path = kioslaverc_path()?;
 
                 let mode = kreadconfig()
                     .args([
                         "--file",
-                        config,
+                        config_path.as_str(),
                         "--group",
                         "Proxy Settings",
                         "--key",
@@ -78,14 +76,12 @@ impl Sysproxy {
     pub fn get_bypass() -> Result<String> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
-                let xdg_dir = xdg::BaseDirectories::new()?;
-                let config = xdg_dir.get_config_file("kioslaverc");
-                let config = config.to_str().ok_or(Error::ParseStr("config".into()))?;
+                let config_path = kioslaverc_path()?;
 
                 let bypass = kreadconfig()
                     .args([
                         "--file",
-                        config,
+                        config_path.as_str(),
                         "--group",
                         "Proxy Settings",
                         "--key",
@@ -141,14 +137,12 @@ impl Sysproxy {
     pub fn set_enable(&self) -> Result<()> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
-                let xdg_dir = xdg::BaseDirectories::new()?;
-                let config = xdg_dir.get_config_file("kioslaverc");
-                let config = config.to_str().ok_or(Error::ParseStr("config".into()))?;
+                let config_path = kioslaverc_path()?;
                 let mode = if self.enable { "1" } else { "0" };
                 kwriteconfig()
                     .args([
                         "--file",
-                        config,
+                        config_path.as_str(),
                         "--group",
                         "Proxy Settings",
                         "--key",
@@ -173,9 +167,7 @@ impl Sysproxy {
     pub fn set_bypass(&self) -> Result<()> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
-                let xdg_dir = xdg::BaseDirectories::new()?;
-                let config = xdg_dir.get_config_file("kioslaverc");
-                let config = config.to_str().ok_or(Error::ParseStr("config".into()))?;
+                let config_path = kioslaverc_path()?;
 
                 let bypass = self
                     .bypass
@@ -203,7 +195,7 @@ impl Sysproxy {
                 kwriteconfig()
                     .args([
                         "--file",
-                        config,
+                        config_path.as_str(),
                         "--group",
                         "Proxy Settings",
                         "--key",
@@ -274,6 +266,17 @@ fn write_dconf(path: &str, value: &str) {
     let _ = dconf().arg("write").arg(path).arg(value).status();
 }
 
+fn kioslaverc_path() -> Result<String> {
+    let xdg_dir = xdg::BaseDirectories::new();
+    let config = xdg_dir
+        .get_config_file("kioslaverc")
+        .ok_or(Error::ParseStr("config".into()))?;
+    config
+        .to_str()
+        .map(|value| value.to_owned())
+        .ok_or(Error::ParseStr("config".into()))
+}
+
 fn quoted(value: &str) -> String {
     if value.starts_with('\'') && value.ends_with('\'') {
         value.to_string()
@@ -325,9 +328,7 @@ fn set_proxy(proxy: &Sysproxy, service: &str) -> Result<()> {
             write_dconf(host_path.as_str(), host);
             write_dconf(port_path.as_str(), port);
 
-            let xdg_dir = xdg::BaseDirectories::new()?;
-            let config = xdg_dir.get_config_file("kioslaverc");
-            let config = config.to_str().ok_or(Error::ParseStr("config".into()))?;
+            let config_path = kioslaverc_path()?;
 
             let key = format!("{service}Proxy");
             let key = key.as_str();
@@ -346,7 +347,7 @@ fn set_proxy(proxy: &Sysproxy, service: &str) -> Result<()> {
             kwriteconfig()
                 .args([
                     "--file",
-                    config,
+                    config_path.as_str(),
                     "--group",
                     "Proxy Settings",
                     "--key",
@@ -382,15 +383,20 @@ fn set_proxy(proxy: &Sysproxy, service: &str) -> Result<()> {
 fn get_proxy(service: &str) -> Result<Sysproxy> {
     match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
         "KDE" => {
-            let xdg_dir = xdg::BaseDirectories::new()?;
-            let config = xdg_dir.get_config_file("kioslaverc");
-            let config = config.to_str().ok_or(Error::ParseStr("config".into()))?;
+            let config_path = kioslaverc_path()?;
 
             let key = format!("{service}Proxy");
             let key = key.as_str();
 
             let schema = kreadconfig()
-                .args(["--file", config, "--group", "Proxy Settings", "--key", key])
+                .args([
+                    "--file",
+                    config_path.as_str(),
+                    "--group",
+                    "Proxy Settings",
+                    "--key",
+                    key,
+                ])
                 .output()?;
             let schema = from_utf8(&schema.stdout)
                 .or(Err(Error::ParseStr("schema".into())))?
@@ -449,14 +455,12 @@ impl Autoproxy {
     pub fn get_auto_proxy() -> Result<Autoproxy> {
         let (enable, url) = match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
-                let xdg_dir = xdg::BaseDirectories::new()?;
-                let config = xdg_dir.get_config_file("kioslaverc");
-                let config = config.to_str().ok_or(Error::ParseStr("config".into()))?;
+                let config_path = kioslaverc_path()?;
 
                 let mode = kreadconfig()
                     .args([
                         "--file",
-                        config,
+                        config_path.as_str(),
                         "--group",
                         "Proxy Settings",
                         "--key",
@@ -469,7 +473,7 @@ impl Autoproxy {
                 let url = kreadconfig()
                     .args([
                         "--file",
-                        config,
+                        config_path.as_str(),
                         "--group",
                         "Proxy Settings",
                         "--key",
@@ -503,14 +507,12 @@ impl Autoproxy {
     pub fn set_auto_proxy(&self) -> Result<()> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
-                let xdg_dir = xdg::BaseDirectories::new()?;
-                let config = xdg_dir.get_config_file("kioslaverc");
-                let config = config.to_str().ok_or(Error::ParseStr("config".into()))?;
+                let config_path = kioslaverc_path()?;
                 let mode = if self.enable { "2" } else { "0" };
                 kwriteconfig()
                     .args([
                         "--file",
-                        config,
+                        config_path.as_str(),
                         "--group",
                         "Proxy Settings",
                         "--key",
@@ -521,7 +523,7 @@ impl Autoproxy {
                 kwriteconfig()
                     .args([
                         "--file",
-                        config,
+                        config_path.as_str(),
                         "--group",
                         "Proxy Settings",
                         "--key",
