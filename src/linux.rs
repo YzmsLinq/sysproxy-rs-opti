@@ -6,6 +6,7 @@ const CMD_KEY: &str = "org.gnome.system.proxy";
 static IS_APPIMAGE: LazyLock<bool> = LazyLock::new(|| std::env::var("APPIMAGE").is_ok());
 
 impl Sysproxy {
+    #[inline]
     pub fn get_system_proxy() -> Result<Sysproxy> {
         let enable = Sysproxy::get_enable()?;
 
@@ -30,6 +31,7 @@ impl Sysproxy {
         Ok(socks)
     }
 
+    #[inline]
     pub fn set_system_proxy(&self) -> Result<()> {
         self.set_enable()?;
 
@@ -43,6 +45,7 @@ impl Sysproxy {
         Ok(())
     }
 
+    #[inline]
     pub fn get_enable() -> Result<bool> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
@@ -73,6 +76,7 @@ impl Sysproxy {
         }
     }
 
+    #[inline]
     pub fn get_bypass() -> Result<String> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
@@ -122,18 +126,22 @@ impl Sysproxy {
         }
     }
 
+    #[inline]
     pub fn get_http() -> Result<Sysproxy> {
         get_proxy("http")
     }
 
+    #[inline]
     pub fn get_https() -> Result<Sysproxy> {
         get_proxy("https")
     }
 
+    #[inline]
     pub fn get_socks() -> Result<Sysproxy> {
         get_proxy("socks")
     }
 
+    #[inline]
     pub fn set_enable(&self) -> Result<()> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
@@ -164,6 +172,7 @@ impl Sysproxy {
         }
     }
 
+    #[inline]
     pub fn set_bypass(&self) -> Result<()> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
@@ -233,19 +242,23 @@ impl Sysproxy {
         }
     }
 
+    #[inline]
     pub fn set_http(&self) -> Result<()> {
         set_proxy(self, "http")
     }
 
+    #[inline]
     pub fn set_https(&self) -> Result<()> {
         set_proxy(self, "https")
     }
 
+    #[inline]
     pub fn set_socks(&self) -> Result<()> {
         set_proxy(self, "socks")
     }
 }
 
+#[inline]
 fn gsettings() -> Command {
     let mut command = Command::new("gsettings");
     if *IS_APPIMAGE {
@@ -254,6 +267,7 @@ fn gsettings() -> Command {
     command
 }
 
+#[inline]
 fn dconf() -> Command {
     let mut command = Command::new("dconf");
     if *IS_APPIMAGE {
@@ -262,10 +276,12 @@ fn dconf() -> Command {
     command
 }
 
+#[inline]
 fn write_dconf(path: &str, value: &str) {
     let _ = dconf().arg("write").arg(path).arg(value).status();
 }
 
+#[inline]
 fn kioslaverc_path() -> Result<String> {
     let xdg_dir = xdg::BaseDirectories::new();
     let config = xdg_dir
@@ -277,6 +293,7 @@ fn kioslaverc_path() -> Result<String> {
         .ok_or_else(|| Error::ParseStr("config".into()))
 }
 
+#[inline]
 fn quoted(value: &str) -> String {
     if value.starts_with('\'') && value.ends_with('\'') {
         value.to_string()
@@ -285,6 +302,7 @@ fn quoted(value: &str) -> String {
     }
 }
 
+#[inline]
 fn kreadconfig() -> Command {
     let command = match env::var("KDE_SESSION_VERSION").unwrap_or_default().as_str() {
         "6" => "kreadconfig6",
@@ -297,6 +315,7 @@ fn kreadconfig() -> Command {
     command
 }
 
+#[inline]
 fn kwriteconfig() -> Command {
     let command = match env::var("KDE_SESSION_VERSION").unwrap_or_default().as_str() {
         "6" => "kwriteconfig6",
@@ -309,6 +328,7 @@ fn kwriteconfig() -> Command {
     command
 }
 
+#[inline]
 fn set_proxy(proxy: &Sysproxy, service: &str) -> Result<()> {
     match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
         "KDE" => {
@@ -380,6 +400,7 @@ fn set_proxy(proxy: &Sysproxy, service: &str) -> Result<()> {
     }
 }
 
+#[inline]
 fn get_proxy(service: &str) -> Result<Sysproxy> {
     match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
         "KDE" => {
@@ -444,6 +465,7 @@ fn get_proxy(service: &str) -> Result<Sysproxy> {
     }
 }
 
+#[inline]
 fn strip_str(text: &str) -> &str {
     text.strip_prefix('\'')
         .unwrap_or(text)
@@ -452,6 +474,7 @@ fn strip_str(text: &str) -> &str {
 }
 
 impl Autoproxy {
+    #[inline]
     pub fn get_auto_proxy() -> Result<Autoproxy> {
         let (enable, url) = match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {
@@ -503,7 +526,8 @@ impl Autoproxy {
 
         Ok(Autoproxy { enable, url })
     }
-
+    
+    #[inline]
     pub fn set_auto_proxy(&self) -> Result<()> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
             "KDE" => {

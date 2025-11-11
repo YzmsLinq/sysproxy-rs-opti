@@ -8,6 +8,7 @@ use iptools::iprange::{IPv4, IpRange, IpVer};
 /// use sysproxy::utils::ipv4_cidr_to_wildcard;
 /// assert_eq!(ipv4_cidr_to_wildcard("127.0.0.1/8").unwrap(), vec!["127.*".to_string()]);
 /// ```
+#[inline]
 pub fn ipv4_cidr_to_wildcard(cidr: &str) -> Result<Vec<String>> {
     let ip = IpRange::<IPv4>::new(cidr, "").map_err(|_| Error::ParseStr(cidr.into()))?;
 

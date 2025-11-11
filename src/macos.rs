@@ -3,6 +3,7 @@ use log::debug;
 use std::{process::Command, str::from_utf8};
 
 impl Sysproxy {
+    #[inline]
     pub fn get_system_proxy() -> Result<Sysproxy> {
         let service = default_network_service().or_else(|e| {
             debug!("Failed to get network service: {:?}", e);
@@ -48,6 +49,7 @@ impl Sysproxy {
         Ok(socks)
     }
 
+    #[inline]
     pub fn set_system_proxy(&self) -> Result<()> {
         let service = default_network_service().or_else(|e| {
             debug!("Failed to get network service: {:?}", e);
@@ -79,18 +81,22 @@ impl Sysproxy {
         Ok(())
     }
 
+    #[inline]
     pub fn get_http(service: &str) -> Result<Sysproxy> {
         get_proxy(ProxyType::Http, service)
     }
 
+    #[inline]
     pub fn get_https(service: &str) -> Result<Sysproxy> {
         get_proxy(ProxyType::Https, service)
     }
 
+    #[inline]
     pub fn get_socks(service: &str) -> Result<Sysproxy> {
         get_proxy(ProxyType::Socks, service)
     }
 
+    #[inline]
     pub fn get_bypass(service: &str) -> Result<String> {
         let bypass_output = Command::new("networksetup")
             .args(["-getproxybypassdomains", service])
@@ -106,18 +112,22 @@ impl Sysproxy {
         Ok(bypass)
     }
 
+    #[inline]
     pub fn set_http(&self, service: &str) -> Result<()> {
         set_proxy(self, ProxyType::Http, service)
     }
 
+    #[inline]
     pub fn set_https(&self, service: &str) -> Result<()> {
         set_proxy(self, ProxyType::Https, service)
     }
 
+    #[inline]
     pub fn set_socks(&self, service: &str) -> Result<()> {
         set_proxy(self, ProxyType::Socks, service)
     }
 
+    #[inline]
     pub fn set_bypass(&self, service: &str) -> Result<()> {
         let domains = self.bypass.split(",").collect::<Vec<_>>();
         networksetup()
@@ -128,6 +138,7 @@ impl Sysproxy {
 }
 
 impl Autoproxy {
+    #[inline]
     pub fn get_auto_proxy() -> Result<Autoproxy> {
         let service = default_network_service().or_else(|e| {
             debug!("Failed to get network service: {:?}", e);
@@ -160,6 +171,7 @@ impl Autoproxy {
         })
     }
 
+    #[inline]
     pub fn set_auto_proxy(&self) -> Result<()> {
         let service = default_network_service().or_else(|e| {
             debug!("Failed to get network service: {:?}", e);
@@ -200,6 +212,7 @@ enum ProxyType {
 }
 
 impl ProxyType {
+    #[inline]
     fn to_target(&self) -> &'static str {
         match self {
             ProxyType::Http => "webproxy",
@@ -209,10 +222,12 @@ impl ProxyType {
     }
 }
 
+#[inline]
 fn networksetup() -> Command {
     Command::new("networksetup")
 }
 
+#[inline]
 fn set_proxy(proxy: &Sysproxy, proxy_type: ProxyType, service: &str) -> Result<()> {
     let target = format!("-set{}", proxy_type.to_target());
     let target = target.as_str();
@@ -235,6 +250,7 @@ fn set_proxy(proxy: &Sysproxy, proxy_type: ProxyType, service: &str) -> Result<(
     Ok(())
 }
 
+#[inline]
 fn get_proxy(proxy_type: ProxyType, service: &str) -> Result<Sysproxy> {
     let target = format!("-get{}", proxy_type.to_target());
     let target = target.as_str();
@@ -259,6 +275,7 @@ fn get_proxy(proxy_type: ProxyType, service: &str) -> Result<Sysproxy> {
     })
 }
 
+#[inline]
 fn parse<'a>(target: &'a str, key: &'a str) -> &'a str {
     match target.find(key) {
         Some(idx) => {
@@ -274,6 +291,7 @@ fn parse<'a>(target: &'a str, key: &'a str) -> &'a str {
     }
 }
 
+#[inline]
 fn strip_str(text: &str) -> &str {
     text.strip_prefix('"')
         .unwrap_or(text)
@@ -281,6 +299,7 @@ fn strip_str(text: &str) -> &str {
         .unwrap_or(text)
 }
 
+#[inline]
 fn default_network_service() -> Result<String> {
     // 默认路由获取活跃接口
     if let Ok(service) = get_service_by_default_route() {
@@ -298,6 +317,7 @@ fn default_network_service() -> Result<String> {
     Err(Error::NetworkInterface)
 }
 
+#[inline]
 fn get_service_by_default_route() -> Result<String> {
     let output = Command::new("route").args(["get", "default"]).output()?;
 
@@ -321,6 +341,7 @@ fn get_service_by_default_route() -> Result<String> {
     Err(Error::NetworkInterface)
 }
 
+#[inline]
 fn get_service_by_active_connection() -> Result<String> {
     let services = ["Wi-Fi", "Ethernet", "USB 10/100/1000 LAN"];
 
@@ -353,6 +374,7 @@ fn get_service_by_active_connection() -> Result<String> {
     Err(Error::NetworkInterface)
 }
 
+#[inline]
 fn default_network_service_by_ns() -> Result<String> {
     let output = networksetup().arg("-listallnetworkservices").output()?;
     let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
@@ -366,34 +388,36 @@ fn default_network_service_by_ns() -> Result<String> {
     }
 }
 
-#[allow(dead_code)]
-fn get_service_by_device(device: String) -> Result<String> {
-    let output = networksetup().arg("-listallhardwareports").output()?;
-    let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
+// #[inline]
+// #[allow(dead_code)]
+// fn get_service_by_device(device: String) -> Result<String> {
+//     let output = networksetup().arg("-listallhardwareports").output()?;
+//     let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
 
-    let hardware = stdout.split("Ethernet Address:").find_map(|s| {
-        let lines = s.split("\n");
-        let mut hardware = None;
-        let mut device_ = None;
+//     let hardware = stdout.split("Ethernet Address:").find_map(|s| {
+//         let lines = s.split("\n");
+//         let mut hardware = None;
+//         let mut device_ = None;
 
-        for line in lines {
-            if line.starts_with("Hardware Port:") {
-                hardware = Some(&line[15..]);
-            }
-            if line.starts_with("Device:") {
-                device_ = Some(&line[8..])
-            }
-        }
+//         for line in lines {
+//             if line.starts_with("Hardware Port:") {
+//                 hardware = Some(&line[15..]);
+//             }
+//             if line.starts_with("Device:") {
+//                 device_ = Some(&line[8..])
+//             }
+//         }
 
-        if device == device_? { hardware } else { None }
-    });
+//         if device == device_? { hardware } else { None }
+//     });
 
-    match hardware {
-        Some(hardware) => Ok(hardware.into()),
-        None => Err(Error::NetworkInterface),
-    }
-}
+//     match hardware {
+//         Some(hardware) => Ok(hardware.into()),
+//         None => Err(Error::NetworkInterface),
+//     }
+// }
 
+#[inline]
 fn get_server_by_order(device: String) -> Result<String> {
     let services = listnetworkserviceorder()?;
     let service = services
@@ -406,6 +430,7 @@ fn get_server_by_order(device: String) -> Result<String> {
     }
 }
 
+#[inline]
 fn listnetworkserviceorder() -> Result<Vec<(String, String, String)>> {
     let output = networksetup().arg("-listnetworkserviceorder").output()?;
     let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;

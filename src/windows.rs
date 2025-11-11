@@ -16,6 +16,7 @@ pub use windows::core::Error as Win32Error;
 const SUB_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 
 /// unset proxy
+#[inline]
 fn unset_proxy() -> Result<()> {
     let mut p_opts = ManuallyDrop::new(Vec::<INTERNET_PER_CONN_OPTIONW>::with_capacity(1));
     p_opts.push(INTERNET_PER_CONN_OPTIONW {
@@ -40,6 +41,7 @@ fn unset_proxy() -> Result<()> {
     res
 }
 
+#[inline]
 fn set_auto_proxy(server: String) -> Result<()> {
     let mut p_opts = ManuallyDrop::new(Vec::<INTERNET_PER_CONN_OPTIONW>::with_capacity(2));
     p_opts.push(INTERNET_PER_CONN_OPTIONW {
@@ -74,6 +76,7 @@ fn set_auto_proxy(server: String) -> Result<()> {
 }
 
 /// set global proxy
+#[inline]
 fn set_global_proxy(server: String, bypass: String) -> Result<()> {
     let mut p_opts = ManuallyDrop::new(Vec::<INTERNET_PER_CONN_OPTIONW>::with_capacity(3));
     p_opts.push(INTERNET_PER_CONN_OPTIONW {
@@ -122,6 +125,7 @@ fn set_global_proxy(server: String, bypass: String) -> Result<()> {
     res
 }
 
+#[inline]
 fn apply(options: &INTERNET_PER_CONN_OPTION_LISTW) -> Result<()> {
     unsafe {
         // setting options
@@ -141,6 +145,7 @@ fn apply(options: &INTERNET_PER_CONN_OPTION_LISTW) -> Result<()> {
 }
 
 impl Sysproxy {
+    #[inline]
     pub fn get_system_proxy() -> Result<Sysproxy> {
         let hkcu = RegKey::predef(enums::HKEY_CURRENT_USER);
         let cur_var = hkcu.open_subkey_with_flags(SUB_KEY, enums::KEY_READ)?;
@@ -184,6 +189,7 @@ impl Sysproxy {
         })
     }
 
+    #[inline]
     pub fn set_system_proxy(&self) -> Result<()> {
         match self.enable {
             true => set_global_proxy(format!("{}:{}", self.host, self.port), self.bypass.clone()),
@@ -193,6 +199,7 @@ impl Sysproxy {
 }
 
 impl Autoproxy {
+    #[inline]
     pub fn get_auto_proxy() -> Result<Autoproxy> {
         let hkcu = RegKey::predef(enums::HKEY_CURRENT_USER);
         let cur_var = hkcu.open_subkey_with_flags(SUB_KEY, enums::KEY_READ)?;
@@ -203,6 +210,7 @@ impl Autoproxy {
         Ok(Autoproxy { enable, url })
     }
 
+    #[inline]
     pub fn set_auto_proxy(&self) -> Result<()> {
         match self.enable {
             true => set_auto_proxy(self.url.clone()),
@@ -212,6 +220,7 @@ impl Autoproxy {
 }
 
 /// 解析代理地址字符串为主机名和端口
+#[inline]
 fn parse_proxy_address(address: &str, host: &mut String, port: &mut u16) {
     // 尝试作为URL解析
     if let Ok(url) = Url::parse(&format!("http://{}", address)) {
