@@ -10,6 +10,12 @@ mod windows;
 // #[cfg(feature = "utils")]
 pub mod utils;
 
+#[cfg(feature = "guard")]
+pub mod guard;
+
+#[cfg(feature = "guard")]
+pub use guard::{GuardMonitor, GuardType};
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Sysproxy {
     pub host: String,
