@@ -1,5 +1,6 @@
 use crate::{Autoproxy, Error, Result, Sysproxy};
 use std::{env, process::Command, str::from_utf8, sync::LazyLock};
+use url::Url;
 
 const CMD_KEY: &str = "org.gnome.system.proxy";
 
@@ -329,6 +330,17 @@ fn kwriteconfig() -> Command {
 }
 
 #[inline]
+fn format_kde_proxy_value(service: &str, host: &str, port: u16) -> String {
+    let host = if host.contains(':') && !(host.starts_with('[') && host.ends_with(']')) {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+
+    format!("{service}://{host}:{port}")
+}
+
+#[inline]
 fn set_proxy(proxy: &Sysproxy, service: &str) -> Result<()> {
     match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
         "KDE" => {
@@ -358,10 +370,7 @@ fn set_proxy(proxy: &Sysproxy, service: &str) -> Result<()> {
                 _ => "http",
             };
 
-            let host = proxy.host.to_string();
-            let host = host.as_str();
-
-            let schema = format!("{service}://{host} {port}");
+            let schema = format_kde_proxy_value(service, proxy.host.as_str(), proxy.port);
             let schema = schema.as_str();
 
             kwriteconfig()
@@ -422,19 +431,12 @@ fn get_proxy(service: &str) -> Result<Sysproxy> {
             let schema = from_utf8(&schema.stdout)
                 .map_err(|_| Error::ParseStr("schema".into()))?
                 .trim();
-            let schema = schema
-                .trim_start_matches("http://")
-                .trim_start_matches("socks://");
-            let schema = schema
-                .split_once(' ')
-                .ok_or_else(|| Error::ParseStr("schema".into()))?;
-
-            let host = strip_str(schema.0);
-            let port = schema.1.parse().unwrap_or(80u16);
+            let schema = strip_str(schema);
+            let (host, port) = parse_kde_proxy_schema(schema, service)?;
 
             Ok(Sysproxy {
                 enable: false,
-                host: String::from(host),
+                host,
                 port,
                 bypass: "".into(),
             })
@@ -471,6 +473,118 @@ fn strip_str(text: &str) -> &str {
         .unwrap_or(text)
         .strip_suffix('\'')
         .unwrap_or(text)
+}
+
+#[inline]
+fn parse_url_candidate(schema: &str) -> Option<(String, u16)> {
+    Url::parse(schema.trim()).ok().and_then(|url| {
+        url.host_str().map(|host| {
+            (
+                host.to_string(),
+                url.port_or_known_default().unwrap_or(0u16),
+            )
+        })
+    })
+}
+
+#[inline]
+fn parse_kde_proxy_schema(schema: &str, service: &str) -> Result<(String, u16)> {
+    let schema = schema.trim();
+    if schema.is_empty() {
+        return Err(Error::ParseStr("schema".into()));
+    }
+
+    let scheme = match service {
+        "socks" => "socks",
+        "https" => "https",
+        _ => "http",
+    };
+    let default_port = match service {
+        "socks" => 1080,
+        "https" => 443,
+        _ => 80,
+    };
+
+    let mut candidates = Vec::with_capacity(5);
+    candidates.push(schema.to_string());
+
+    let mut whitespace = schema.split_whitespace();
+    if let (Some(endpoint), Some(port)) = (whitespace.next(), whitespace.next()) {
+        candidates.push(format!("{endpoint}:{port}"));
+
+        let endpoint_with_scheme = if endpoint.contains("://") {
+            endpoint.to_string()
+        } else {
+            format!("{scheme}://{endpoint}")
+        };
+
+        if let Ok(port) = port.parse::<u16>() {
+            let candidate = format!("{endpoint_with_scheme}:{port}");
+            if let Some((host, port)) = parse_url_candidate(candidate.as_str()) {
+                return Ok((host, port));
+            }
+        }
+
+        candidates.push(format!("{endpoint_with_scheme}:{port}"));
+    }
+
+    if !schema.contains("://") {
+        candidates.push(format!("{scheme}://{schema}"));
+    }
+
+    for candidate in candidates {
+        if let Some((host, port)) = parse_url_candidate(candidate.as_str()) {
+            let port = if port == 0 { default_port } else { port };
+            return Ok((host, port));
+        }
+    }
+
+    Err(Error::ParseStr("schema".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_legacy_spaced_http_entry() {
+        let (host, port) = parse_kde_proxy_schema("http://127.0.0.1 7897", "http").unwrap();
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(port, 7897);
+    }
+
+    #[test]
+    fn parse_legacy_spaced_socks_entry_without_scheme() {
+        let (host, port) = parse_kde_proxy_schema("127.0.0.1 7897", "socks").unwrap();
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(port, 7897);
+    }
+
+    #[test]
+    fn parse_plasma_colon_entry() {
+        let (host, port) = parse_kde_proxy_schema("http://127.0.0.1:7897", "http").unwrap();
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(port, 7897);
+    }
+
+    #[test]
+    fn parse_url_without_port_defaults_to_80() {
+        let (host, port) = parse_kde_proxy_schema("http://127.0.0.1", "http").unwrap();
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(port, 80);
+    }
+
+    #[test]
+    fn parse_https_without_port_defaults_to_443() {
+        let (host, port) = parse_kde_proxy_schema("https://proxy.example.com", "https").unwrap();
+        assert_eq!(host, "proxy.example.com");
+        assert_eq!(port, 443);
+    }
+
+    #[test]
+    fn empty_schema_returns_error() {
+        assert!(parse_kde_proxy_schema("", "http").is_err());
+    }
 }
 
 impl Autoproxy {
@@ -526,7 +640,7 @@ impl Autoproxy {
 
         Ok(Autoproxy { enable, url })
     }
-    
+
     #[inline]
     pub fn set_auto_proxy(&self) -> Result<()> {
         match env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().as_str() {
