@@ -213,7 +213,7 @@ enum ProxyType {
 
 impl ProxyType {
     #[inline]
-    fn to_target(&self) -> &'static str {
+    const fn to_target(&self) -> &'static str {
         match self {
             ProxyType::Http => "webproxy",
             ProxyType::Https => "securewebproxy",

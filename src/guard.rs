@@ -30,7 +30,7 @@ pub enum GuardState {
 
 impl GuardState {
     #[inline]
-    pub fn from_u8(value: u8) -> Self {
+    pub const fn from_u8(value: u8) -> Self {
         match value {
             0 => GuardState::Running,
             1 => GuardState::Stopped,
@@ -41,27 +41,27 @@ impl GuardState {
     }
 
     #[inline]
-    pub fn to_u8(&self) -> u8 {
+    pub const fn to_u8(&self) -> u8 {
         *self as u8
     }
 
     #[inline]
-    pub fn is_running(&self) -> bool {
+    pub const fn is_running(&self) -> bool {
         matches!(self, GuardState::Running)
     }
 
     #[inline]
-    pub fn is_stopped(&self) -> bool {
+    pub const fn is_stopped(&self) -> bool {
         matches!(self, GuardState::Stopped)
     }
 
     #[inline]
-    pub fn is_need_restart(&self) -> bool {
+    pub const fn is_need_restart(&self) -> bool {
         matches!(self, GuardState::NeedRestart)
     }
 
     #[inline]
-    pub fn is_pendding(&self) -> bool {
+    pub const fn is_pendding(&self) -> bool {
         matches!(self, GuardState::Pending)
     }
 }
@@ -299,7 +299,7 @@ mod tests {
         };
 
         let guard_monitor = GuardMonitor::new(
-            GuardType::Autoproxy(target_auto_proxy.clone()),
+            GuardType::Autoproxy(target_auto_proxy),
             Duration::from_secs(3),
         );
 
@@ -396,7 +396,7 @@ mod tests {
         };
 
         let guard_monitor = GuardMonitor::new(
-            GuardType::Autoproxy(target_auto_proxy.clone()),
+            GuardType::Autoproxy(target_auto_proxy),
             Duration::from_secs(1),
         );
 
@@ -416,10 +416,8 @@ mod tests {
             bypass: "localhost,127.0.0.1".to_string(),
         };
 
-        let guard_monitor = GuardMonitor::new(
-            GuardType::Sysproxy(sysproxy.clone()),
-            Duration::from_secs(2),
-        );
+        let guard_monitor =
+            GuardMonitor::new(GuardType::Sysproxy(sysproxy), Duration::from_secs(2));
 
         if let GuardType::Sysproxy(ref proxy) = guard_monitor.guard_type {
             assert_eq!(proxy.host, "proxy.example.com");
@@ -436,7 +434,7 @@ mod tests {
         };
 
         let guard_monitor = GuardMonitor::new(
-            GuardType::Autoproxy(disabled_autoproxy.clone()),
+            GuardType::Autoproxy(disabled_autoproxy),
             Duration::from_secs(1),
         );
 
@@ -455,7 +453,7 @@ mod tests {
         };
 
         let guard_monitor = GuardMonitor::new(
-            GuardType::Sysproxy(disabled_sysproxy.clone()),
+            GuardType::Sysproxy(disabled_sysproxy),
             Duration::from_secs(1),
         );
 

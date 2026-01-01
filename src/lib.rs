@@ -56,7 +56,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Sysproxy {
-    pub fn is_support() -> bool {
+    pub const fn is_support() -> bool {
         cfg!(any(
             target_os = "linux",
             target_os = "macos",
@@ -66,7 +66,7 @@ impl Sysproxy {
 }
 
 impl Autoproxy {
-    pub fn is_support() -> bool {
+    pub const fn is_support() -> bool {
         cfg!(any(
             target_os = "linux",
             target_os = "macos",
