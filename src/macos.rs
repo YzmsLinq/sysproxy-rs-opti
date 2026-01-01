@@ -1,6 +1,6 @@
 use crate::{Autoproxy, Error, Result, Sysproxy};
 use log::debug;
-use std::{process::Command, str::from_utf8};
+use std::{borrow::Cow, process::Command, str::from_utf8};
 
 impl Sysproxy {
     #[inline]
@@ -98,12 +98,9 @@ impl Sysproxy {
 
     #[inline]
     pub fn get_bypass(service: &str) -> Result<String> {
-        let bypass_output = Command::new("networksetup")
-            .args(["-getproxybypassdomains", service])
-            .output()?;
+        let bypass_output = run_networksetup(&["-getproxybypassdomains", service])?;
 
-        let bypass = from_utf8(&bypass_output.stdout)
-            .map_err(|_| Error::ParseStr("bypass".into()))?
+        let bypass = bypass_output
             .split('\n')
             .filter(|s| !s.is_empty())
             .collect::<Vec<&str>>()
@@ -129,11 +126,33 @@ impl Sysproxy {
 
     #[inline]
     pub fn set_bypass(&self, service: &str) -> Result<()> {
-        let domains = self.bypass.split(",").collect::<Vec<_>>();
-        networksetup()
-            .args([["-setproxybypassdomains", service].to_vec(), domains].concat())
-            .status()?;
-        Ok(())
+        set_bypass(self, service)
+    }
+
+    #[inline]
+    pub fn has_permission() -> bool {
+        let service = default_network_service().or_else(|e| {
+            debug!("Failed to get network service: {:?}", e);
+            default_network_service_by_ns()
+        });
+        let service = match service {
+            Ok(s) => s,
+            Err(e) => {
+                debug!("Failed to get network service by networksetup: {:?}", e);
+                return false;
+            }
+        };
+        let service_owned = service;
+        let service = service_owned.as_str();
+
+        let result = run_networksetup(&["-setwebproxystate", service, "off"]);
+        match result {
+            Ok(_) => true,
+            Err(e) => {
+                debug!("Failed to check permission: {:?}", e);
+                false
+            }
+        }
     }
 }
 
@@ -154,11 +173,8 @@ impl Autoproxy {
         let service_owned = service;
         let service = service_owned.as_str();
 
-        let auto_output = networksetup()
-            .args(["-getautoproxyurl", service])
-            .output()?;
-        let auto = from_utf8(&auto_output.stdout)
-            .map_err(|_| Error::ParseStr("auto".into()))?
+        let auto_output = run_networksetup(&["-getautoproxyurl", service])?;
+        let auto = auto_output
             .trim()
             .split_once('\n')
             .ok_or_else(|| Error::ParseStr("auto".into()))?;
@@ -193,12 +209,8 @@ impl Autoproxy {
         } else {
             &self.url
         };
-        networksetup()
-            .args(["-setautoproxyurl", service, url])
-            .status()?;
-        networksetup()
-            .args(["-setautoproxystate", service, enable])
-            .status()?;
+        run_networksetup(&["-setautoproxyurl", service, url])?;
+        run_networksetup(&["-setautoproxystate", service, enable])?;
 
         Ok(())
     }
@@ -213,58 +225,85 @@ enum ProxyType {
 
 impl ProxyType {
     #[inline]
-    const fn to_target(&self) -> &'static str {
+    const fn as_str(&self) -> &'static str {
         match self {
-            ProxyType::Http => "webproxy",
-            ProxyType::Https => "securewebproxy",
-            ProxyType::Socks => "socksfirewallproxy",
+            Self::Http => "webproxy",
+            Self::Https => "securewebproxy",
+            Self::Socks => "socksfirewallproxy",
         }
     }
 }
 
+impl std::fmt::Display for ProxyType {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 #[inline]
-fn networksetup() -> Command {
-    Command::new("networksetup")
+fn run_networksetup<'a>(args: &[&str]) -> Result<Cow<'a, str>> {
+    let mut command = Command::new("networksetup");
+    let outoput = command.args(args);
+    let output = outoput.output()?;
+    let status = outoput.status()?;
+
+    let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
+
+    if !status.success() {
+        if stdout.contains("requires admin privileges") {
+            log::error!(
+                "Admin privileges required to run networksetup with args: {:?}, error: {}",
+                args,
+                stdout
+            );
+            return Err(Error::RequiresAdminPrivileges);
+        }
+    }
+
+    Ok(Cow::Owned(stdout.to_string()))
 }
 
 #[inline]
 fn set_proxy(proxy: &Sysproxy, proxy_type: ProxyType, service: &str) -> Result<()> {
-    let target = format!("-set{}", proxy_type.to_target());
+    let target = format!("-set{}", proxy_type);
     let target = target.as_str();
 
     let host = proxy.host.as_str();
     let port = format!("{}", proxy.port);
     let port = port.as_str();
 
-    networksetup()
-        .args([target, service, host, port])
-        .status()?;
+    run_networksetup(&[target, service, host, port])?;
 
-    let target_state = format!("-set{}state", proxy_type.to_target());
+    let target_state = format!("-set{}state", proxy_type);
     let enable = if proxy.enable { "on" } else { "off" };
 
-    networksetup()
-        .args([target_state.as_str(), service, enable])
-        .status()?;
+    run_networksetup(&[target_state.as_str(), service, enable])?;
 
     Ok(())
 }
 
 #[inline]
+fn set_bypass(proxy: &Sysproxy, service: &str) -> Result<()> {
+    let domains = proxy.bypass.split(",").collect::<Vec<_>>();
+    run_networksetup(&[["-setproxybypassdomains", service].to_vec(), domains].concat())?;
+    Ok(())
+}
+
+#[inline]
 fn get_proxy(proxy_type: ProxyType, service: &str) -> Result<Sysproxy> {
-    let target = format!("-get{}", proxy_type.to_target());
+    let target = format!("-get{}", proxy_type);
     let target = target.as_str();
 
-    let output = networksetup().args([target, service]).output()?;
+    let output = run_networksetup(&[target, service])?;
 
-    let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
-    let enable = parse(stdout, "Enabled:");
+    let enable = parse(&output, "Enabled:");
     let enable = enable == "Yes";
 
-    let host = parse(stdout, "Server:");
+    let host = parse(&output, "Server:");
     let host = host.into();
 
-    let port = parse(stdout, "Port:");
+    let port = parse(&output, "Port:");
     let port = port.parse().map_err(|_| Error::ParseStr("port".into()))?;
 
     Ok(Sysproxy {
@@ -347,25 +386,21 @@ fn get_service_by_active_connection() -> Result<String> {
 
     for service in services {
         // 检查服务是否存在且有活跃连接
-        let output = Command::new("networksetup")
-            .args(["-getinfo", service])
-            .output();
+        let output = run_networksetup(&["-getinfo", service])?;
 
-        if let Ok(output) = output {
-            let stdout =
-                from_utf8(&output.stdout).map_err(|_| Error::ParseStr("getinfo output".into()))?;
-            if !stdout.contains("** Error:") {
-                // 检查是否有有效的IP地址
-                for line in stdout.lines() {
-                    if line.starts_with("IP address:")
-                        && let Some(ip_raw) = line.split(':').nth(1)
-                    {
-                        let ip = ip_raw.trim();
-                        if !ip.is_empty() && ip != "none" {
-                            debug!("Found active service with IP: {} - {}", service, ip);
-                            return Ok(service.to_string());
-                        }
-                    }
+        if output.contains("** Error:") {
+            return Err(Error::NetworkInterface);
+        }
+
+        // 检查是否有有效的IP地址
+        for line in output.lines() {
+            if line.starts_with("IP address:")
+                && let Some(ip_raw) = line.split(':').nth(1)
+            {
+                let ip = ip_raw.trim();
+                if !ip.is_empty() && ip != "none" {
+                    debug!("Found active service with IP: {} - {}", service, ip);
+                    return Ok(service.to_string());
                 }
             }
         }
@@ -376,8 +411,7 @@ fn get_service_by_active_connection() -> Result<String> {
 
 #[inline]
 fn default_network_service_by_ns() -> Result<String> {
-    let output = networksetup().arg("-listallnetworkservices").output()?;
-    let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
+    let stdout = run_networksetup(&["-listallnetworkservices"])?;
     let mut lines = stdout.split('\n');
     lines.next(); // ignore the tips
 
@@ -387,35 +421,6 @@ fn default_network_service_by_ns() -> Result<String> {
         None => Err(Error::NetworkInterface),
     }
 }
-
-// #[inline]
-// #[allow(dead_code)]
-// fn get_service_by_device(device: String) -> Result<String> {
-//     let output = networksetup().arg("-listallhardwareports").output()?;
-//     let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
-
-//     let hardware = stdout.split("Ethernet Address:").find_map(|s| {
-//         let lines = s.split("\n");
-//         let mut hardware = None;
-//         let mut device_ = None;
-
-//         for line in lines {
-//             if line.starts_with("Hardware Port:") {
-//                 hardware = Some(&line[15..]);
-//             }
-//             if line.starts_with("Device:") {
-//                 device_ = Some(&line[8..])
-//             }
-//         }
-
-//         if device == device_? { hardware } else { None }
-//     });
-
-//     match hardware {
-//         Some(hardware) => Ok(hardware.into()),
-//         None => Err(Error::NetworkInterface),
-//     }
-// }
 
 #[inline]
 fn get_server_by_order(device: String) -> Result<String> {
@@ -432,8 +437,7 @@ fn get_server_by_order(device: String) -> Result<String> {
 
 #[inline]
 fn listnetworkserviceorder() -> Result<Vec<(String, String, String)>> {
-    let output = networksetup().arg("-listnetworkserviceorder").output()?;
-    let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
+    let stdout = run_networksetup(&["-listnetworkserviceorder"])?;
 
     let mut lines = stdout.split('\n');
     lines.next(); // ignore the tips
@@ -474,5 +478,20 @@ fn test_order() {
     let services = listnetworkserviceorder().unwrap();
     for (service, port, device) in services {
         println!("service: {}, port: {}, device: {}", service, port, device);
+    }
+}
+
+#[test]
+fn test_set_bypass() {
+    let proxy = Sysproxy {
+        host: "proxy.example.com".into(),
+        port: 8080,
+        enable: true,
+        bypass: "no".into(),
+    };
+    let result = proxy.set_bypass("Wi-Fi");
+    if let Err(e) = result {
+        assert!(matches!(e, Error::RequiresAdminPrivileges));
+        assert!(!Sysproxy::has_permission());
     }
 }

@@ -44,6 +44,9 @@ pub enum Error {
     #[error("failed to set proxy for this environment")]
     NotSupport,
 
+    #[error("admin privileges required to modify system proxy")]
+    RequiresAdminPrivileges,
+
     #[cfg(target_os = "linux")]
     #[error(transparent)]
     Xdg(#[from] xdg::BaseDirectoriesError),
