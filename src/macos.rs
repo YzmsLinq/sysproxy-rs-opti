@@ -1,6 +1,10 @@
 use crate::{Autoproxy, Error, Result, Sysproxy};
 use log::debug;
-use std::{borrow::Cow, process::Command, str::from_utf8};
+use std::{
+    borrow::Cow,
+    process::{Command, Stdio},
+    str::from_utf8,
+};
 
 impl Sysproxy {
     #[inline]
@@ -244,7 +248,10 @@ impl std::fmt::Display for ProxyType {
 #[inline]
 fn run_networksetup<'a>(args: &[&str]) -> Result<Cow<'a, str>> {
     let mut command = Command::new("networksetup");
-    let outoput = command.args(args);
+    let outoput = command
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     let output = outoput.output()?;
     let status = outoput.status()?;
 
@@ -358,7 +365,11 @@ fn default_network_service() -> Result<String> {
 
 #[inline]
 fn get_service_by_default_route() -> Result<String> {
-    let output = Command::new("route").args(["get", "default"]).output()?;
+    let output = Command::new("route")
+        .args(["get", "default"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()?;
 
     let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("route output".into()))?;
     let mut interface_name = None;
@@ -381,12 +392,26 @@ fn get_service_by_default_route() -> Result<String> {
 }
 
 #[inline]
+fn get_all_network_services() -> Result<Vec<String>> {
+    let stdout = run_networksetup(&["-listallnetworkservices"])?;
+
+    let services = stdout
+        .lines()
+        .skip(1)
+        .map(|line| line.trim().trim_start_matches('*').trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    Ok(services)
+}
+
+#[inline]
 fn get_service_by_active_connection() -> Result<String> {
-    let services = ["Wi-Fi", "Ethernet", "USB 10/100/1000 LAN"];
+    let services = get_all_network_services()?;
 
     for service in services {
         // 检查服务是否存在且有活跃连接
-        let output = run_networksetup(&["-getinfo", service])?;
+        let output = run_networksetup(&["-getinfo", &service])?;
 
         if output.contains("** Error:") {
             return Err(Error::NetworkInterface);

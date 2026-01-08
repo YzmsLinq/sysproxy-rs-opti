@@ -38,6 +38,11 @@ windows = { version = "0.62.2", features = [
 
 [dev-dependencies]
 serial_test = "3.1.1"
+criterion = "0.7"
+
+[[bench]]
+name = "behavior"
+harness = false
 
 [features]
 default = ["iptools"]
