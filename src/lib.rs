@@ -47,6 +47,14 @@ pub enum Error {
     #[error("admin privileges required to modify system proxy")]
     RequiresAdminPrivileges,
 
+    #[cfg(target_os = "macos")]
+    #[error("failed to interact with SCPreferences")]
+    SCPreferences,
+
+    #[cfg(target_os = "macos")]
+    #[error("failed to interact with SCDynamicStore")]
+    SCDynamicStore,
+
     #[cfg(target_os = "linux")]
     #[error(transparent)]
     Xdg(#[from] xdg::BaseDirectoriesError),

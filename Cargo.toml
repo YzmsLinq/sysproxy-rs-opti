@@ -1,6 +1,6 @@
 [package]
 name = "sysproxy"
-version = "0.4.3"
+version = "0.5.0"
 edition = "2024"
 authors = ["zzzgydi"]
 license = "MIT"
@@ -13,7 +13,6 @@ description = "A library for set/get system proxy. Supports Windows, macOS and l
 log = "0.4"
 thiserror = "2.0.17"
 iptools = { version = "0.3.0", optional = true }
-url = "2.5.0"
 tokio = { version = "1", features = [
     "rt-multi-thread",
     "sync",
@@ -21,11 +20,14 @@ tokio = { version = "1", features = [
     "time",
 ], optional = true }
 
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+url = "2.5.0"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 xdg = "3.0.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-interfaces = "0.0.9"
+system-configuration = "0.7.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = { version = "0.55.0", features = ["transactions"] }
@@ -41,7 +43,7 @@ serial_test = "3.1.1"
 criterion = "0.7"
 
 [[bench]]
-name = "behavior"
+name = "macos_behavior"
 harness = false
 
 [features]

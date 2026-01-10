@@ -5,33 +5,98 @@ use std::{
     process::{Command, Stdio},
     str::from_utf8,
 };
+use system_configuration::{
+    core_foundation::dictionary::CFDictionary, dynamic_store::SCDynamicStore,
+    preferences::SCPreferences,
+};
+use system_configuration::{
+    core_foundation::{array::CFArray, base::TCFType},
+    network_configuration::SCNetworkService,
+    sys::network_configuration::{
+        SCNetworkProtocolGetConfiguration, SCNetworkServiceCopy, SCNetworkServiceCopyProtocol,
+    },
+};
+use system_configuration::{
+    core_foundation::{
+        base::{CFRelease, CFType, ItemRef},
+        number::CFNumber,
+        string::CFString,
+    },
+    dynamic_store::SCDynamicStoreBuilder,
+};
+
+#[derive(Debug)]
+enum ProxyType {
+    Http,
+    Https,
+    Socks,
+}
+
+impl ProxyType {
+    #[inline]
+    const fn as_enable(&self) -> &'static str {
+        match self {
+            Self::Http => "HTTPEnable",
+            Self::Https => "HTTPSEnable",
+            Self::Socks => "SOCKSEnable",
+        }
+    }
+    #[inline]
+    const fn as_host(&self) -> &'static str {
+        match self {
+            Self::Http => "HTTPProxy",
+            Self::Https => "HTTPSProxy",
+            Self::Socks => "SOCKSProxy",
+        }
+    }
+    #[inline]
+    const fn as_port(&self) -> &'static str {
+        match self {
+            Self::Http => "HTTPPort",
+            Self::Https => "HTTPSPort",
+            Self::Socks => "SOCKSPort",
+        }
+    }
+}
+
+impl ProxyType {
+    #[inline]
+    const fn as_set_str(&self) -> &'static str {
+        match self {
+            Self::Http => "-setwebproxy",
+            Self::Https => "-setsecurewebproxy",
+            Self::Socks => "-setsocksfirewallproxy",
+        }
+    }
+    #[inline]
+    const fn as_state_cmd(&self) -> &'static str {
+        match self {
+            Self::Http => "-setwebproxystate",
+            Self::Https => "-setsecurewebproxystate",
+            Self::Socks => "-setsocksfirewallproxystate",
+        }
+    }
+}
 
 impl Sysproxy {
     #[inline]
     pub fn get_system_proxy() -> Result<Sysproxy> {
-        let service = default_network_service().or_else(|e| {
-            debug!("Failed to get network service: {:?}", e);
-            default_network_service_by_ns()
-        });
-        let service = match service {
-            Ok(s) => s,
-            Err(e) => {
-                debug!("Failed to get network service by networksetup: {:?}", e);
-                return Err(e);
-            }
-        };
-        let service = &service;
+        let service = get_active_network_service()?;
+        let scp = SCPreferences::default(&CFString::new("sysproxy-rs"));
+        let service_id =
+            get_service_id_by_display_name(&scp, &service).ok_or(Error::NetworkInterface)?;
+        let proxies_dict = get_proxies_by_service_uuid(&scp, &service_id)?;
 
-        let mut socks = Sysproxy::get_socks(service)?;
+        let mut socks = Sysproxy::get_socks(&service, Some(&proxies_dict))?;
         debug!("Getting SOCKS proxy: {:?}", socks);
 
-        let http = Sysproxy::get_http(service)?;
+        let http = Sysproxy::get_http(&service, Some(&proxies_dict))?;
         debug!("Getting HTTP proxy: {:?}", http);
 
-        let https = Sysproxy::get_https(service)?;
+        let https = Sysproxy::get_https(&service, Some(&proxies_dict))?;
         debug!("Getting HTTPS proxy: {:?}", https);
 
-        let bypass = Sysproxy::get_bypass(service)?;
+        let bypass = Sysproxy::get_bypass(&service, Some(&proxies_dict))?;
         debug!("Getting bypass domains: {:?}", bypass);
 
         socks.bypass = bypass;
@@ -42,6 +107,7 @@ impl Sysproxy {
                 socks.host = http.host;
                 socks.port = http.port;
             }
+
             if https.enable {
                 socks.enable = true;
                 socks.host = https.host;
@@ -54,19 +120,9 @@ impl Sysproxy {
 
     #[inline]
     pub fn set_system_proxy(&self) -> Result<()> {
-        let service = default_network_service().or_else(|e| {
-            debug!("Failed to get network service: {:?}", e);
-            default_network_service_by_ns()
-        });
-        let service = match service {
-            Ok(s) => s,
-            Err(e) => {
-                debug!("Failed to get network service by networksetup: {:?}", e);
-                return Err(e);
-            }
-        };
-        let service_owned = service;
-        let service = service_owned.as_str();
+        let service = get_active_network_service()?;
+        let service = service.to_string();
+        let service = service.as_str();
 
         debug!("Use network service: {}", service);
 
@@ -85,31 +141,52 @@ impl Sysproxy {
     }
 
     #[inline]
-    pub fn get_http(service: &str) -> Result<Sysproxy> {
-        get_proxy(ProxyType::Http, service)
+    pub fn get_http(
+        service: &CFString,
+        cfd: Option<&CFDictionary<CFString, CFType>>,
+    ) -> Result<Sysproxy> {
+        let cfd = match cfd {
+            Some(s) => s,
+            None => &get_proxies_dict_from_service_uuid(service)?,
+        };
+        parse_proxies_from_dict(cfd, ProxyType::Http)
     }
 
     #[inline]
-    pub fn get_https(service: &str) -> Result<Sysproxy> {
-        get_proxy(ProxyType::Https, service)
+    pub fn get_https(
+        service: &CFString,
+        cfd: Option<&CFDictionary<CFString, CFType>>,
+    ) -> Result<Sysproxy> {
+        let cfd = match cfd {
+            Some(s) => s,
+            None => &get_proxies_dict_from_service_uuid(service)?,
+        };
+        parse_proxies_from_dict(cfd, ProxyType::Https)
     }
 
     #[inline]
-    pub fn get_socks(service: &str) -> Result<Sysproxy> {
-        get_proxy(ProxyType::Socks, service)
+    pub fn get_socks(
+        service: &CFString,
+        cfd: Option<&CFDictionary<CFString, CFType>>,
+    ) -> Result<Sysproxy> {
+        let cfd = match cfd {
+            Some(s) => s,
+            None => &get_proxies_dict_from_service_uuid(service)?,
+        };
+        parse_proxies_from_dict(cfd, ProxyType::Socks)
     }
 
     #[inline]
-    pub fn get_bypass(service: &str) -> Result<String> {
-        let bypass_output = run_networksetup(&["-getproxybypassdomains", service])?;
-
-        let bypass = bypass_output
-            .split('\n')
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<&str>>()
-            .join(",");
-
-        Ok(bypass)
+    pub fn get_bypass(
+        service: &CFString,
+        cfd: Option<&CFDictionary<CFString, CFType>>,
+    ) -> Result<String> {
+        let cfd = match cfd {
+            Some(s) => s,
+            None => &get_proxies_dict_from_service_uuid(service)?,
+        };
+        let bypass_list = parse_bypass_from_dict(cfd)?;
+        Ok(bypass_list.join(","))
     }
 
     #[inline]
@@ -134,25 +211,16 @@ impl Sysproxy {
 
     #[inline]
     pub fn has_permission() -> bool {
-        let service = default_network_service().or_else(|e| {
-            debug!("Failed to get network service: {:?}", e);
-            default_network_service_by_ns()
-        });
-        let service = match service {
-            Ok(s) => s,
-            Err(e) => {
-                debug!("Failed to get network service by networksetup: {:?}", e);
-                return false;
-            }
+        let check = || -> Result<()> {
+            let service = get_active_network_service()?.to_string();
+            run_networksetup(&["-setwebproxystate", &service, "off"])?;
+            Ok(())
         };
-        let service_owned = service;
-        let service = service_owned.as_str();
 
-        let result = run_networksetup(&["-setwebproxystate", service, "off"]);
-        match result {
+        match check() {
             Ok(_) => true,
             Err(e) => {
-                debug!("Failed to check permission: {:?}", e);
+                debug!("Permission check failed: {:?}", e);
                 false
             }
         }
@@ -162,50 +230,17 @@ impl Sysproxy {
 impl Autoproxy {
     #[inline]
     pub fn get_auto_proxy() -> Result<Autoproxy> {
-        let service = default_network_service().or_else(|e| {
-            debug!("Failed to get network service: {:?}", e);
-            default_network_service_by_ns()
-        });
-        let service = match service {
-            Ok(s) => s,
-            Err(e) => {
-                debug!("Failed to get network service by networksetup: {:?}", e);
-                return Err(e);
-            }
-        };
-        let service_owned = service;
-        let service = service_owned.as_str();
-
-        let auto_output = run_networksetup(&["-getautoproxyurl", service])?;
-        let auto = auto_output
-            .trim()
-            .split_once('\n')
-            .ok_or_else(|| Error::ParseStr("auto".into()))?;
-        let url = strip_str(auto.0.strip_prefix("URL: ").unwrap_or(""));
-        let enable = auto.1 == "Enabled: Yes";
-
-        Ok(Autoproxy {
-            enable,
-            url: url.to_string(),
-        })
+        let service = get_active_network_service_uuid()?;
+        let store = SCDynamicStoreBuilder::new("sysproxy-rs")
+            .build()
+            .ok_or(Error::SCDynamicStore)?;
+        get_autoproxies_by_service_uuid(&store, &service)
     }
 
     #[inline]
     pub fn set_auto_proxy(&self) -> Result<()> {
-        let service = default_network_service().or_else(|e| {
-            debug!("Failed to get network service: {:?}", e);
-            default_network_service_by_ns()
-        });
-        let service = match service {
-            Ok(s) => s,
-            Err(e) => {
-                debug!("Failed to get network service by networksetup: {:?}", e);
-                return Err(e);
-            }
-        };
-        let service_owned = service;
-        let service = service_owned.as_str();
-
+        let service = get_active_network_service()?.to_string();
+        let service = service.as_str();
         let enable = if self.enable { "on" } else { "off" };
         let url = if self.url.is_empty() {
             "\"\""
@@ -216,55 +251,6 @@ impl Autoproxy {
         run_networksetup(&["-setautoproxystate", service, enable])?;
 
         Ok(())
-    }
-}
-
-#[derive(Debug)]
-enum ProxyType {
-    Http,
-    Https,
-    Socks,
-}
-
-impl ProxyType {
-    #[inline]
-    const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Http => "webproxy",
-            Self::Https => "securewebproxy",
-            Self::Socks => "socksfirewallproxy",
-        }
-    }
-    #[inline]
-    const fn as_set_str(&self) -> &'static str {
-        match self {
-            Self::Http => "-setwebproxy",
-            Self::Https => "-setsecurewebproxy",
-            Self::Socks => "-setsocksfirewallproxy",
-        }
-    }
-    #[inline]
-    const fn as_state_cmd(&self) -> &'static str {
-        match self {
-            Self::Http => "-setwebproxystate",
-            Self::Https => "-setsecurewebproxystate",
-            Self::Socks => "-setsocksfirewallproxystate",
-        }
-    }
-    #[inline]
-    const fn as_get_str(&self) -> &'static str {
-        match self {
-            Self::Http => "-getwebproxy",
-            Self::Https => "-getsecurewebproxy",
-            Self::Socks => "-getsocksfirewallproxy",
-        }
-    }
-}
-
-impl std::fmt::Display for ProxyType {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
     }
 }
 
@@ -314,206 +300,207 @@ fn set_bypass(proxy: &Sysproxy, service: &str) -> Result<()> {
     Ok(())
 }
 
-#[inline]
-fn get_proxy(proxy_type: ProxyType, service: &str) -> Result<Sysproxy> {
-    let output = run_networksetup(&[proxy_type.as_get_str(), service])?;
+fn get_active_network_service() -> Result<CFString> {
+    let service_uuid = get_active_network_service_uuid()?;
+    let scp = SCPreferences::default(&CFString::new("sysproxy-rs"));
+    let services = SCNetworkService::get_services(&scp);
+    for service in &services {
+        if let Some(uuid) = service.id()
+            && uuid == service_uuid
+            && let Some(interface) = service.network_interface()
+            && let Some(name) = interface.display_name()
+        {
+            return Ok(name);
+        }
+    }
+    Err(Error::NetworkInterface)
+}
 
-    let enable = parse(&output, "Enabled:");
-    let enable = enable == "Yes";
+fn get_active_network_service_uuid() -> Result<CFString> {
+    let store = SCDynamicStoreBuilder::new("sysproxy-rs")
+        .build()
+        .ok_or(Error::SCDynamicStore)?;
+    let global_ipv4_key = CFString::from_static_string("State:/Network/Global/IPv4");
+    let sets = store.get(global_ipv4_key).ok_or(Error::SCDynamicStore)?;
+    if let Some(dict) = sets.downcast_into::<CFDictionary>() {
+        let key = CFString::from_static_string("PrimaryService");
+        let val_ptr = dict.find(key.as_CFTypeRef() as *const _);
+        if let Some(ptr) = val_ptr {
+            let service_id_cf = unsafe { CFString::wrap_under_get_rule(*ptr as _) };
+            return Ok(service_id_cf);
+        }
+    }
+    Err(Error::NetworkInterface)
+}
 
-    let host = parse(&output, "Server:");
-    let host = host.into();
-
-    let port = parse(&output, "Port:");
-    let port = port.parse().map_err(|_| Error::ParseStr("port".into()))?;
-
+fn parse_proxies_from_dict(
+    cfd: &CFDictionary<CFString, CFType>,
+    proxy_type: ProxyType,
+) -> Result<Sysproxy> {
+    let enable = get_proxy_value(cfd, proxy_type.as_enable())
+        .and_then(|x| x.downcast::<CFNumber>())
+        .and_then(|num| num.to_i32())
+        .map(|v| v != 0)
+        .ok_or_else(|| Error::ParseStr("Unable to parse enable from CSP".into()))?;
+    let port = get_proxy_value(cfd, proxy_type.as_port())
+        .and_then(|x| x.downcast::<CFNumber>())
+        .and_then(|num| num.to_i32())
+        .ok_or_else(|| Error::ParseStr("Unable to parse port from CSP".into()))?;
+    let host = get_proxy_value(cfd, proxy_type.as_host())
+        .and_then(|x| x.downcast::<CFString>().map(|s| s.to_string()))
+        .ok_or_else(|| Error::ParseStr("Unable to parse host from CSP".into()))?;
     Ok(Sysproxy {
         enable,
         host,
-        port,
+        port: port as u16,
         bypass: "".into(),
     })
 }
 
-#[inline]
-fn parse<'a>(target: &'a str, key: &str) -> &'a str {
-    target
-        .find(key)
-        .map(|idx| {
-            let val = &target[idx + key.len()..];
-            val.split('\n').next().unwrap_or(val).trim()
-        })
-        .unwrap_or("")
+fn parse_proxyauto_from_dict(cfd: &CFDictionary<CFString, CFType>) -> Result<Autoproxy> {
+    let enable = get_proxy_value(cfd, "ProxyAutoConfigEnable")
+        .and_then(|x| x.downcast::<CFNumber>())
+        .and_then(|num| num.to_i32())
+        .map(|v| v != 0)
+        .ok_or_else(|| Error::ParseStr("Unable to parse auto proxy enable from CSP".into()))?;
+    let url = get_proxy_value(cfd, "ProxyAutoConfigURLString")
+        .and_then(|x| x.downcast::<CFString>().map(|s| s.to_string()))
+        .ok_or_else(|| Error::ParseStr("Unable to parse auto proxy URL from CSP".into()))?;
+
+    let url = if url == "\"\"" { String::new() } else { url };
+
+    Ok(Autoproxy { enable, url })
 }
 
-#[inline]
-fn strip_str(text: &str) -> &str {
-    text.strip_prefix('"')
-        .unwrap_or(text)
-        .strip_suffix('"')
-        .unwrap_or(text)
-}
+fn parse_bypass_from_dict(cfd: &CFDictionary<CFString, CFType>) -> Result<Vec<String>> {
+    let bypass_list_raw = get_proxy_value(cfd, "ExceptionsList")
+        .and_then(|x| x.downcast::<CFArray>())
+        .ok_or_else(|| Error::ParseStr("Unable to parse bypass list".into()))?;
 
-#[inline]
-fn default_network_service() -> Result<String> {
-    // 默认路由获取活跃接口
-    if let Ok(service) = get_service_by_default_route() {
-        debug!("Found service by default route: {}", service);
-        return Ok(service);
-    }
-
-    // 检查常见的活跃网络服务
-    if let Ok(service) = get_service_by_active_connection() {
-        debug!("Found service by active connection: {}", service);
-        return Ok(service);
-    }
-
-    debug!("All methods failed, falling back to default_network_service_by_ns");
-    Err(Error::NetworkInterface)
-}
-
-#[inline]
-fn get_service_by_default_route() -> Result<String> {
-    let output = Command::new("route")
-        .args(["get", "default"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()?;
-
-    let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("route output".into()))?;
-    let mut interface_name = None;
-
-    for line in stdout.lines() {
-        if line.trim().starts_with("interface:") {
-            if let Some(v) = line.split(':').nth(1) {
-                interface_name = Some(v.trim().to_string());
-            }
-            break;
+    let mut bypass_list = Vec::with_capacity(bypass_list_raw.len() as usize);
+    for bypass_raw in &bypass_list_raw {
+        let cf_type: CFType = unsafe { TCFType::wrap_under_get_rule(*bypass_raw as _) };
+        if let Some(cf_string) = cf_type.downcast::<CFString>() {
+            bypass_list.push(cf_string.to_string());
         }
     }
 
-    if let Some(interface) = interface_name {
-        debug!("Default route interface: {}", interface);
-        return get_server_by_order(interface);
-    }
-
-    Err(Error::NetworkInterface)
+    Ok(bypass_list)
 }
 
-#[inline]
-fn get_all_network_services() -> Result<Vec<String>> {
-    let stdout = run_networksetup(&["-listallnetworkservices"])?;
-
-    let services = stdout
-        .lines()
-        .skip(1)
-        .map(|line| line.trim().trim_start_matches('*').trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    Ok(services)
+fn get_proxy_value<'a>(
+    dict: &'a CFDictionary<CFString, CFType>,
+    key: &'static str,
+) -> Option<ItemRef<'a, CFType>> {
+    let cf_key = CFString::from_static_string(key);
+    dict.find(&cf_key)
 }
 
-#[inline]
-fn get_service_by_active_connection() -> Result<String> {
-    let services = get_all_network_services()?;
+// #[allow(dead_code)]
+// fn get_service_id_by_bsd_name(scp: &SCPreferences, bsd_name: &str) -> Option<CFString> {
+//     let services = SCNetworkService::get_services(scp);
+//     for service in &services {
+//         if let Some(interface) = service
+//             .network_interface()
+//             .and_then(|scn_inter| scn_inter.bsd_name().map(|name| name.to_string()))
+//         {
+//             if interface == bsd_name {
+//                 return service.id();
+//             }
+//         }
+//     }
+//     None
+// }
 
-    for service in services {
-        // 检查服务是否存在且有活跃连接
-        let output = run_networksetup(&["-getinfo", &service])?;
-
-        if output.contains("** Error:") {
-            return Err(Error::NetworkInterface);
-        }
-
-        // 检查是否有有效的IP地址
-        for line in output.lines() {
-            if line.starts_with("IP address:")
-                && let Some(ip_raw) = line.split(':').nth(1)
-            {
-                let ip = ip_raw.trim();
-                if !ip.is_empty() && ip != "none" {
-                    debug!("Found active service with IP: {} - {}", service, ip);
-                    return Ok(service.to_string());
-                }
-            }
-        }
-    }
-
-    Err(Error::NetworkInterface)
-}
-
-#[inline]
-fn default_network_service_by_ns() -> Result<String> {
-    let stdout = run_networksetup(&["-listallnetworkservices"])?;
-    let mut lines = stdout.split('\n');
-    lines.next(); // ignore the tips
-
-    // get the first service
-    match lines.next() {
-        Some(line) => Ok(line.into()),
-        None => Err(Error::NetworkInterface),
-    }
-}
-
-#[inline]
-fn get_server_by_order(device: String) -> Result<String> {
-    let services = listnetworkserviceorder()?;
-    let service = services
-        .into_iter()
-        .find(|(_, _, d)| d == &device)
-        .map(|(s, _, _)| s);
-    match service {
-        Some(service) => Ok(service),
-        None => Err(Error::NetworkInterface),
-    }
-}
-
-#[inline]
-fn listnetworkserviceorder() -> Result<Vec<(String, String, String)>> {
-    let stdout = run_networksetup(&["-listnetworkserviceorder"])?;
-
-    let mut lines = stdout.split('\n');
-    lines.next(); // ignore the tips
-
-    let mut services = Vec::with_capacity(4);
-    let mut p: Option<(String, String, String)> = None;
-
-    for line in lines {
-        if !line.starts_with("(") {
-            continue;
-        }
-
-        if p.is_none() {
-            if let Some(ri) = line.find(")") {
-                let service = line[ri + 1..].trim();
-                p = Some((service.into(), "".into(), "".into()));
-            }
-            continue;
-        }
-
-        let line_inner = &line[1..line.len() - 1];
-        if let Some(pi) = line_inner.find("Port:")
-            && let Some(di) = line_inner.find(", Device:")
-            && let Some(p_val) = p.take()
+fn get_service_id_by_display_name(scp: &SCPreferences, name: &CFString) -> Option<CFString> {
+    let services = SCNetworkService::get_services(scp);
+    for service in &services {
+        if let Some(interface) = service
+            .network_interface()
+            .and_then(|scn_inter| scn_inter.display_name())
+            && interface == *name
         {
-            let port = line_inner[pi + 5..di].trim();
-            let device = line_inner[di + 9..].trim();
-            let (service, _, _) = p_val;
-            let new_p = (service, port.into(), device.into());
-            services.push(new_p);
+            return service.id();
         }
     }
-    Ok(services)
+    None
 }
 
-#[allow(clippy::unwrap_used)]
-#[test]
-fn test_order() {
-    let services = listnetworkserviceorder().unwrap();
-    for (service, port, device) in services {
-        println!("service: {}, port: {}, device: {}", service, port, device);
+fn get_autoproxies_by_service_uuid(
+    store: &SCDynamicStore,
+    service_uuid: &CFString,
+) -> Result<Autoproxy> {
+    let proxy_key = CFString::new(&format!("Setup:/Network/Service/{}/Proxies", service_uuid));
+
+    let proxies_cf_type = store
+        .get(proxy_key)
+        .ok_or_else(|| Error::ParseStr("Proxy settings not found in DynamicStore".into()))?;
+
+    let proxies_dict_raw = proxies_cf_type
+        .downcast_into::<CFDictionary>()
+        .ok_or_else(|| Error::ParseStr("Not a dictionary".into()))?;
+
+    let proxies_dict: CFDictionary<CFString, CFType> =
+        unsafe { CFDictionary::wrap_under_get_rule(proxies_dict_raw.as_concrete_TypeRef() as _) };
+
+    parse_proxyauto_from_dict(&proxies_dict)
+}
+
+fn get_proxies_by_service_uuid(
+    scp: &SCPreferences,
+    service_uuid: &CFString,
+) -> Result<CFDictionary<CFString, CFType>> {
+    unsafe {
+        let service_ref = SCNetworkServiceCopy(
+            scp.as_concrete_TypeRef(),
+            service_uuid.as_concrete_TypeRef(),
+        );
+        if service_ref.is_null() {
+            return Err(Error::SCPreferences);
+        }
+
+        let protocol_ref = SCNetworkServiceCopyProtocol(
+            service_ref,
+            CFString::from_static_string("Proxies").as_concrete_TypeRef(),
+        );
+        if protocol_ref.is_null() {
+            return Err(Error::SCPreferences);
+        }
+
+        let config = SCNetworkProtocolGetConfiguration(protocol_ref);
+        if config.is_null() {
+            return Err(Error::SCPreferences);
+        }
+
+        let dict: CFDictionary<CFString, CFType> = CFDictionary::wrap_under_get_rule(config as _);
+
+        CFRelease(service_ref);
+        CFRelease(protocol_ref);
+
+        Ok(dict)
     }
+}
+
+pub fn get_proxies_dict_from_service_uuid(
+    service: &CFString,
+) -> Result<CFDictionary<CFString, CFType>> {
+    let scp = SCPreferences::default(&CFString::new("sysproxy-rs"));
+    let service_uuid =
+        get_service_id_by_display_name(&scp, service).ok_or(Error::NetworkInterface)?;
+    get_proxies_by_service_uuid(&scp, &service_uuid)
+}
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn test_get_service_id_by_display_name() {
+    let scp = SCPreferences::default(&CFString::new("sysproxy-rs"));
+    let display_name = CFString::new("Wi-Fi");
+    let service_uuid = get_service_id_by_display_name(&scp, &display_name).unwrap();
+    assert!(!service_uuid.to_string().is_empty());
+    println!("service_uuid: {:?}", service_uuid);
+    let proxies = get_proxies_by_service_uuid(&scp, &service_uuid).unwrap();
+    assert!(!proxies.is_empty());
+    println!("proxies: {:?}", proxies);
 }
 
 #[test]

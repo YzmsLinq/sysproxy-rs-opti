@@ -1,50 +1,54 @@
-use criterion::{Criterion, criterion_group, criterion_main};
-use std::process::Command;
-use sysproxy::{Autoproxy, Sysproxy};
+#![cfg(target_os = "macos")]
 
-fn get_valid_service() -> String {
-    let output = Command::new("networksetup")
-        .args(&["-listallnetworkservices"])
-        .output()
-        .expect("failed to execute networksetup");
-    let stdout = String::from_utf8(output.stdout).expect("invalid utf8");
-    let mut lines = stdout.split('\n');
-    lines.next(); // skip header
-    lines.next().expect("no network services found").to_string()
+use criterion::{Criterion, criterion_group, criterion_main};
+use sysproxy::{Autoproxy, Sysproxy};
+use system_configuration::core_foundation::string::CFString;
+
+fn get_valid_service() -> CFString {
+    CFString::from_static_string("Wi-Fi")
 }
 
 fn bench_get_system_proxy(c: &mut Criterion) {
     c.bench_function("get_system_proxy", |b| {
-        b.iter(|| Sysproxy::get_system_proxy())
+        b.iter(Sysproxy::get_system_proxy)
     });
 }
 
 fn bench_get_http(c: &mut Criterion) {
     let service = get_valid_service();
-    c.bench_function("get_http", |b| b.iter(|| Sysproxy::get_http(&service)));
+
+    c.bench_function("get_http", |b| {
+        b.iter(|| Sysproxy::get_http(&service, None))
+    });
 }
 
 fn bench_get_https(c: &mut Criterion) {
     let service = get_valid_service();
-    c.bench_function("get_https", |b| b.iter(|| Sysproxy::get_https(&service)));
+    c.bench_function("get_https", |b| {
+        b.iter(|| Sysproxy::get_https(&service, None))
+    });
 }
 
 fn bench_get_socks(c: &mut Criterion) {
     let service = get_valid_service();
-    c.bench_function("get_socks", |b| b.iter(|| Sysproxy::get_socks(&service)));
+    c.bench_function("get_socks", |b| {
+        b.iter(|| Sysproxy::get_socks(&service, None))
+    });
 }
 
 fn bench_get_bypass(c: &mut Criterion) {
     let service = get_valid_service();
-    c.bench_function("get_bypass", |b| b.iter(|| Sysproxy::get_bypass(&service)));
+    c.bench_function("get_bypass", |b| {
+        b.iter(|| Sysproxy::get_bypass(&service, None))
+    });
 }
 
 fn bench_has_permission(c: &mut Criterion) {
-    c.bench_function("has_permission", |b| b.iter(|| Sysproxy::has_permission()));
+    c.bench_function("has_permission", |b| b.iter(Sysproxy::has_permission));
 }
 
 fn bench_set_http(c: &mut Criterion) {
-    let service = get_valid_service();
+    let service = get_valid_service().to_string();
     let proxy = Sysproxy {
         enable: false,
         host: "127.0.0.1".into(),
@@ -55,7 +59,7 @@ fn bench_set_http(c: &mut Criterion) {
 }
 
 fn bench_set_https(c: &mut Criterion) {
-    let service = get_valid_service();
+    let service = get_valid_service().to_string();
     let proxy = Sysproxy {
         enable: false,
         host: "127.0.0.1".into(),
@@ -66,7 +70,7 @@ fn bench_set_https(c: &mut Criterion) {
 }
 
 fn bench_set_socks(c: &mut Criterion) {
-    let service = get_valid_service();
+    let service = get_valid_service().to_string();
     let proxy = Sysproxy {
         enable: false,
         host: "127.0.0.1".into(),
@@ -77,7 +81,7 @@ fn bench_set_socks(c: &mut Criterion) {
 }
 
 fn bench_set_bypass(c: &mut Criterion) {
-    let service = get_valid_service();
+    let service = get_valid_service().to_string();
     let proxy = Sysproxy {
         enable: false,
         host: "".into(),
@@ -98,7 +102,7 @@ fn bench_set_system_proxy(c: &mut Criterion) {
 }
 
 fn bench_get_auto_proxy(c: &mut Criterion) {
-    c.bench_function("get_auto_proxy", |b| b.iter(|| Autoproxy::get_auto_proxy()));
+    c.bench_function("get_auto_proxy", |b| b.iter(Autoproxy::get_auto_proxy));
 }
 
 fn bench_set_auto_proxy(c: &mut Criterion) {
