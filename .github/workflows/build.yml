@@ -1,0 +1,131 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+permissions: write-all
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: sysproxy.win32-x64-msvc.node
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact: sysproxy.win32-arm64-msvc.node
+          - os: windows-latest
+            target: i686-pc-windows-msvc
+            artifact: sysproxy.win32-ia32-msvc.node
+          # macOS
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: sysproxy.darwin-x64.node
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: sysproxy.darwin-arm64.node
+          # Linux GNU
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: sysproxy.linux-x64-gnu.node
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: sysproxy.linux-arm64-gnu.node
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Install Dependencies
+        run: pnpm install
+
+      - name: Build
+        run: pnpm build --target ${{ matrix.target }}
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+      - name: Publish Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  build-musl:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            artifact: sysproxy.linux-x64-musl.node
+          - target: aarch64-unknown-linux-musl
+            artifact: sysproxy.linux-arm64-musl.node
+
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install Dependencies
+        run: |
+          corepack enable
+          pnpm install
+
+      - name: Build
+        run: pnpm build --target ${{ matrix.target }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+      - name: Publish Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}
+          token: ${{ secrets.GITHUB_TOKEN }}
