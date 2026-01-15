@@ -112,7 +112,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          corepack enable
+          npm install -g pnpm@10
           pnpm install
 
       - name: Build
