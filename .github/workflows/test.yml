@@ -37,7 +37,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run cargo check
-        run: cargo check
+        run: cargo check --no-default-features --features iptools
 
       - name: Run cargo test
-        run: cargo test -- --nocapture
+        run: cargo test --no-default-features --features iptools -- --nocapture

@@ -22,8 +22,8 @@ tokio = { version = "1", features = [
     "macros",
     "time",
 ], optional = true }
-napi = { version = "3", default-features = false, features = ["napi4"] }
-napi-derive = "3"
+napi = { version = "3", default-features = false, features = ["napi4"], optional = true }
+napi-derive = { version = "3", optional = true }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 url = "2.5"
@@ -52,8 +52,9 @@ name = "macos_behavior"
 harness = false
 
 [features]
-default = ["iptools"]
+default = ["iptools", "napi-binding"]
 guard = ["tokio"]
+napi-binding = ["napi", "napi-derive"]
 
 [lints.clippy]
 # Core categories - most important for code safety and correctness
