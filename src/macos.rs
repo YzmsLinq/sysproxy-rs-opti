@@ -337,11 +337,23 @@ fn parse_proxies_from_dict(
     cfd: &CFDictionary<CFString, CFType>,
     proxy_type: ProxyType,
 ) -> Result<Sysproxy> {
+    // When proxy is not configured, these keys may not exist - default to disabled
     let enable = get_proxy_value(cfd, proxy_type.as_enable())
         .and_then(|x| x.downcast::<CFNumber>())
         .and_then(|num| num.to_i32())
         .map(|v| v != 0)
-        .ok_or_else(|| Error::ParseStr("Unable to parse enable from CSP".into()))?;
+        .unwrap_or(false);
+
+    // If not enabled, return default disabled proxy
+    if !enable {
+        return Ok(Sysproxy {
+            enable: false,
+            host: String::new(),
+            port: 0,
+            bypass: String::new(),
+        });
+    }
+
     let port = get_proxy_value(cfd, proxy_type.as_port())
         .and_then(|x| x.downcast::<CFNumber>())
         .and_then(|num| num.to_i32())
@@ -353,17 +365,27 @@ fn parse_proxies_from_dict(
         enable,
         host,
         port: port as u16,
-        bypass: "".into(),
+        bypass: String::new(),
     })
 }
 
 fn parse_proxyauto_from_dict(cfd: &CFDictionary<CFString, CFType>) -> Result<Autoproxy> {
+    // When auto proxy is not configured, these keys may not exist - default to disabled
     let enable = get_proxy_value(cfd, "ProxyAutoConfigEnable")
         .and_then(|x| x.downcast::<CFNumber>())
         .and_then(|num| num.to_i32())
         .map(|v| v != 0)
-        .ok_or_else(|| Error::ParseStr("Unable to parse auto proxy enable from CSP".into()))?;
-    let url = get_proxy_value(cfd, "ProxyAutoConfig RLString")
+        .unwrap_or(false);
+
+    // If not enabled, return default disabled auto proxy
+    if !enable {
+        return Ok(Autoproxy {
+            enable: false,
+            url: String::new(),
+        });
+    }
+
+    let url = get_proxy_value(cfd, "ProxyAutoConfigURLString")
         .and_then(|x| x.downcast::<CFString>().map(|s| s.to_string()))
         .ok_or_else(|| Error::ParseStr("Unable to parse auto proxy URL from CSP".into()))?;
 
