@@ -18,26 +18,41 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: sysproxy.win32-x64-msvc.node
+            features: ""
+          - os: windows-latest
+            target: x86_64-win7-windows-msvc
+            artifact: sysproxy.win32-x64-msvc-win7.node
+            features: ""
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             artifact: sysproxy.win32-arm64-msvc.node
+            features: ""
           - os: windows-latest
             target: i686-pc-windows-msvc
             artifact: sysproxy.win32-ia32-msvc.node
+            features: ""
+          - os: windows-latest
+            target: i686-win7-windows-msvc
+            artifact: sysproxy.win32-ia32-msvc-win7.node
+            features: ""
           # macOS
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact: sysproxy.darwin-x64.node
+            features: ""
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: sysproxy.darwin-arm64.node
+            features: ""
           # Linux GNU (use ubuntu-20.04 for GLIBC 2.31 compatibility)
           - os: ubuntu-20.04
             target: x86_64-unknown-linux-gnu
             artifact: sysproxy.linux-x64-gnu.node
+            features: ""
           - os: ubuntu-20.04
             target: aarch64-unknown-linux-gnu
             artifact: sysproxy.linux-arm64-gnu.node
+            features: ""
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -68,11 +83,30 @@ jobs:
         run: pnpm install
 
       - name: Build
-        run: pnpm build --target ${{ matrix.target }}
+        run: |
+          if [ -n "${{ matrix.features }}" ]; then
+            pnpm build --target ${{ matrix.target }} --cargo-flags "${{ matrix.features }}"
+          else
+            pnpm build --target ${{ matrix.target }}
+          fi
+        shell: bash
         env:
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
           CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Rename Win7 artifact
+        if: contains(matrix.artifact, 'win7')
+        run: |
+          $targetMap = @{
+            "x86_64-win7-windows-msvc" = "sysproxy.win32-x64-msvc.node"
+            "i686-win7-windows-msvc" = "sysproxy.win32-ia32-msvc.node"
+          }
+          $originalName = $targetMap["${{ matrix.target }}"]
+          if ($originalName -and (Test-Path $originalName)) {
+            Move-Item $originalName "${{ matrix.artifact }}"
+          }
+        shell: pwsh
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
