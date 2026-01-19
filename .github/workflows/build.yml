@@ -23,6 +23,7 @@ jobs:
             target: x86_64-win7-windows-msvc
             artifact: sysproxy.win32-x64-msvc-win7.node
             features: ""
+            toolchain: 1.70.0
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             artifact: sysproxy.win32-arm64-msvc.node
@@ -35,6 +36,7 @@ jobs:
             target: i686-win7-windows-msvc
             artifact: sysproxy.win32-ia32-msvc-win7.node
             features: ""
+            toolchain: 1.70.0
           # macOS
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -71,6 +73,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ matrix.toolchain || 'stable' }}
           targets: ${{ matrix.target }}
 
       - name: Install cross-compilation tools (Linux ARM64)
