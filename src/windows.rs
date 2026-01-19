@@ -273,12 +273,12 @@ fn parse_proxy_address(address: &str, host: &mut String, port: &mut u16) {
     }
 
     // 尝试作为host:port解析
-    if let Some((h, p)) = address.rsplit_once(':')
-        && let Ok(port_num) = p.parse::<u16>()
-    {
-        *host = h.to_string();
-        *port = port_num;
-        return;
+    if let Some((h, p)) = address.rsplit_once(':') {
+        if let Ok(port_num) = p.parse::<u16>() {
+            *host = h.to_string();
+            *port = port_num;
+            return;
+        }
     }
 
     // 如果无法解析端口，默认使用主机名和标准HTTP端口
