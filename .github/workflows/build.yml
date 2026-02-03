@@ -52,12 +52,12 @@ jobs:
             features: ""
             toolchain: stable
           # Linux GNU (use ubuntu-20.04 for GLIBC 2.31 compatibility)
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             artifact: sysproxy.linux-x64-gnu.node
             features: ""
             toolchain: stable
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
             artifact: sysproxy.linux-arm64-gnu.node
             features: ""
